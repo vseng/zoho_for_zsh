@@ -1,0 +1,32 @@
+'[
+            "done_by",
+            "related_record.module",
+            "related_record.id",
+            "automation_details",
+            "record.module",
+            "record.id",
+            "audited_time",
+            "action",
+            "timeline_entry_id",
+            "source",
+            "field_history.id",
+            "field_history.name",
+            "field_history.old_value",
+            "field_history.new_value"
+        ], (.__timeline[] | 
+        [
+            .done_by.name,
+            .related_record.module.api_name, 
+            .related_record.id,
+            (.automation_details | tostring),
+            .record.module.api_name,
+            .record.id,
+            .audited_time,
+            .action,
+            .id,
+            .source,
+            (.field_history[0] | .id),
+            (.field_history[0] | .api_name),
+            (.field_history[0] | .value.old),
+            (.field_history[0] | .value.new)
+        ]) | @csv'

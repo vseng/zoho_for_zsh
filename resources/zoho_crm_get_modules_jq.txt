@@ -1,0 +1,28 @@
+'[
+                "module_label",
+                "api_name", 
+                "parent_module",
+                "generated_type",
+                "scoring_supported",
+                "description",
+                "api_supported",
+                "blueprints_supported",
+                "visible",
+                "convertable",
+                "editable",
+                "quick_create"
+            ], (.modules[] | 
+            [
+                .plural_label,
+                .api_name, 
+                .parent_module.api_name,
+                .generated_type,
+                .scoring_supported,
+                .description,
+                .api_supported,
+                .isBlueprintSupported,
+                .visible,
+                .convertable,
+                .editable,
+                .quick_create
+            ]) | @csv'
