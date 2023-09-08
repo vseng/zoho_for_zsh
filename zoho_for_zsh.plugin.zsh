@@ -68,7 +68,7 @@ function zoho_oauth() {
                                           -U -w $(echo $AUTH | jq '.refresh_token' | tr -d '"')
         else 
             AUTH=$(curl -X POST \
-                        -d "client_id=$CLIENT&client_secret=$SECRET&refresh_token=$REFRESH&grant_type=refresh_token" \
+                        -d "client_id=$CLIENT&client_secret=$SECRET&refresh_token=$RFRESH&grant_type=refresh_token" \
                         "https://accounts.zoho.com/oauth/v2/token")
     fi
     # the oauth2 http request - if a new grant code is not passed as an arg, saved refresh token is used - otherwise, new refresh token saved to keychain
