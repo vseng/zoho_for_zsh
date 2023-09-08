@@ -12,7 +12,7 @@ function zoho_save_auth_to_keychain() {
     #
     # @param $1: REQUIRED - the client id from your zoho self client app
     # @param $2: REQUIRED - the client secret from your zoho self client app
-    # @param $3: OPTIONAL - the existing refresh token from your zoho self client app
+    # @param $3: OPTIONAL - the existing refresh token from your zoho self client app (required for initial use, use a dummy value to get the keychain item created)
 
     CLIENT=$1
     SECRET=$2
@@ -21,7 +21,7 @@ function zoho_save_auth_to_keychain() {
 
     security add-generic-password -U -s "ZOHO_API_CLIENT_ID" -U -a "Zoho" -U -w $CLIENT -T /usr/bin/security
     security add-generic-password -U -s "ZOHO_API_SECRET" -U -a "Zoho" -U -w $SECRET -T /usr/bin/security
-    # adding/updating client id and secret keychain values
+    # adding/updating client id and secret keychain values - you may be prompted for your keychain password the first time
 
     if [ ! -z $RFRESH ];
         then security add-generic-password -U -s "ZOHO_API_REFRESH_TOKEN" -U -a "Zoho" -U -w $RFRESH -T /usr/bin/security
@@ -126,14 +126,13 @@ function util_json_to_csv() {
 
 function zoho_curl() {
     # this function handles http requests for the zoho_api plugin
-    # BEFORE USING, UPDATE THE VALUE OF YOUR ZOHO CRM SAVE DIRECTORY $ZOHO_SAVE_DIR IN THIS FUNCTION OR IN YOUR .ZSHRC (OR PASS AS PARAM)
+    # BEFORE USING, UPDATE THE VALUE OF YOUR ZOHO CRM SAVE DIRECTORY $ZOHO_SAVE_DIR IN YOUR .ZSHRC
     #
     # @param $1: REQUIRED - Request Type - accepted values are POST, PUT, GET, etc.
     # @param $2: REQUIRED - The CRM Product being queried - determines base URL for http requests. Current supported values are CRM and ZA - also accepts base URLs (no trailing "/")
     # @param $3: REQUIRED - File path where http response will be saved - edit these in the functions below to support your local environment setup
     # @param $4: REQUIRED - API Endpoint targeted by the http request - exclude leading and trailing "/" characters
     # @param $5: OPTIONAL - URL parameters for the http request - should be URL-encoded
-    # @param $6: OPTIONAL - Optionally pass a different directory path to change the value of your $ZOHO_SAVE_DIR
     #
     # @return: a file output, usually json-formatted
 
@@ -142,10 +141,6 @@ function zoho_curl() {
     SAVE_FILE=$3
     ENDPOINT=$4
     PARAMS=$5
-    ALTDIR=$6
-
-    export ZOHO_SAVE_DIR=${$ALTDIR:-"$HOME/Projects/Lu/Zoho"}
-    # $ZOHO_SAVE_DIR will take the default value hardcoded here if $6 is not passed to the function
 
     if [ ! -rwx "$ZOHO_SAVE_DIR" ]; 
         then chmod 755 $ZOHO_SAVE_DIR
@@ -155,7 +150,7 @@ function zoho_curl() {
     if ($PRODUCT="CRM"); 
         then BASE_URL=https://www.zohoapis.com/crm/v5
         elif ($PRODUCT="ZA"); 
-            then BASE_URL=https://analyticsapi.zoho.com/api/srivers@relaypro.com
+            then BASE_URL=https://analyticsapi.zoho.com/api
         else BASE_URL=$PRODUCT
     fi
     # determines the base url to use for the request based on the product name or url specified in $2
@@ -188,12 +183,13 @@ function zoho_curl() {
 function zoho_analytics_get_view_metadata() {
     # This function reads the view metadata for a Zoho Analytics table
     #
-    # @param $1: REQUIRED - the name of the targeted workspace, url-encoded
-    # @param $2: REQUIRED - the name of the targeted workspace view, url-encoded
+    # @param $1: REQUIRED - the email address of your organization owner
+    # @param $2: REQUIRED - the name of the targeted workspace, url-encoded
+    # @param $3: REQUIRED - the name of the targeted workspace view, url-encoded
 
     TYPE=GET
-    FILENAME="ZA-View-Metadata-$1-$2"
-    ENDPOINT="$1/$2"
+    FILENAME="ZA-View-Metadata-$2-$3"
+    ENDPOINT="$1/$2/$3"
     PARAMS="ZOHO_ACTION=VIEWMETADATA&ZOHO_OUTPUT_FORMAT=JSON&ZOHO_API_VERSION=1.0&ZOHO_ERROR_FORMAT=JSON"
     # specify argument values for zoho_curl()
     
@@ -204,7 +200,7 @@ function zoho_analytics_get_view_metadata() {
     zoho_curl $TYPE ZA $JSON_FILE $ENDPOINT $PARAMS
     # perform the get request, saving the json response to the specified filename in $ZOHO_SAVE_DIR
     
-    JQ_FILE=${$1:-"$HOME/Projects/Lu/ZOHO/fun_inputs/zoho_analytics_get_view_metadata_jq.txt"}
+    JQ_FILE="$ZSH_CUSTOM/plugins/zoho_for_zsh/resources/zoho_analytics_get_view_metadata_jq.txt"
     # specifying path to jq file, takes a parameter or a default value
 
     util_json_to_csv $JSON_FILE $CSV_FILE $JQ_FILE
@@ -232,7 +228,7 @@ function zoho_crm_get_modules() {
     zoho_curl $TYPE CRM $JSON_FILE $ENDPOINT
     # perform the get request, saving the json response to the specified filename in $ZOHO_SAVE_DIR
     
-    JQ_FILE=${$1:-"$HOME/Projects/Lu/ZOHO/fun_inputs/zoho_crm_get_modules_jq.txt"}
+    JQ_FILE="$ZSH_CUSTOM/plugins/zoho_for_zsh/resources/zoho_crm_get_modules_jq.txt"
     # specifying path to jq file, takes a parameter or a default value
 
     util_json_to_csv $JSON_FILE $CSV_FILE $JQ_FILE
@@ -250,10 +246,10 @@ function zoho_crm_get_field_metadata() {
     TYPE="GET"
     # general request variables
 
-    INPUT_FILE=${$1:-"$HOME/Documents/ZCRM/zsh_functions/fun_inputs/module_list.json"}
+    INPUT_FILE="$ZSH_CUSTOM/plugins/zoho_for_zsh/resources/module_list.json"
     # the json file to be referenced for target modules
 
-    JQ_FILE=${$2:-"$HOME/Projects/Lu/ZOHO/fun_inputs/zoho_crm_get_field_metadata_jq.txt"}
+    JQ_FILE="$ZSH_CUSTOM/plugins/zoho_for_zsh/resources/zoho_crm_get_field_metadata_jq.txt"
     # the plain text file containing the jq to parse the input file to .csv format - default value can be hardcoded
 
     for i in $(jq -r '.modules[]' $INPUT_FILE |  tr -d '"');
@@ -288,7 +284,7 @@ function zoho_crm_get_record_timeline() {
 
     JSON_FILE="$ZCRM_SAVE_DIR/$FILENAME.txt"
     CSV_FILE="$ZCRM_SAVE_DIR/$FILENAME.csv"
-    JQ_FILE=${$3:-"$HOME/Projects/Lu/ZOHO/fun_inputs/zoho_crm_get_record_timeline_jq.txt"}
+    JQ_FILE="$ZSH_CUSTOM/plugins/zoho_for_zsh/resources/zoho_crm_get_record_timeline_jq.txt"
     # specifying input, output, and jq file names for parsing to csv
 
     zoho_curl $TYPE CRM $JSON_FILE $ENDPOINT $PARAMS
