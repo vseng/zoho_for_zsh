@@ -63,7 +63,7 @@ function zoho_oauth() {
             AUTH=$(curl -X POST \
                         -d "client_id=$CLIENT&client_secret=$SECRET&redirect_uri=$REDIRECT&code=$GRANT_CODE&grant_type=authorization_code" \
                         "https://accounts.zoho.com/oauth/v2/token") 
-            security add-generic-password -U -s "CRM_Refresh" \
+            security add-generic-password -U -s "ZOHO_API_REFRESH_TOKEN" \
                                           -U -a "Zoho" \
                                           -U -w $(echo $AUTH | jq '.refresh_token' | tr -d '"')
         else 
@@ -142,14 +142,14 @@ function zoho_curl() {
     ENDPOINT=$4
     PARAMS=$5
 
-    if [ ! -rwx "$ZOHO_SAVE_DIR" ]; 
-        then chmod 755 $ZOHO_SAVE_DIR
+    if [ ! -r "$SAVE_FILE" ]; 
+        then chmod 755 $SAVE_FILE
     fi
     # if the owner does not have read/write/execute permissions to the $ZOHO_SAVE_DIR, grants them
     
-    if ($PRODUCT="CRM"); 
+    if [ $PRODUCT = "CRM" ]; 
         then BASE_URL=https://www.zohoapis.com/crm/v5
-        elif ($PRODUCT="ZA"); 
+        elif [ $PRODUCT = "ZA" ]; 
             then BASE_URL=https://analyticsapi.zoho.com/api
         else BASE_URL=$PRODUCT
     fi
@@ -188,19 +188,20 @@ function zoho_analytics_get_view_metadata() {
     # @param $3: REQUIRED - the name of the targeted workspace view, url-encoded
 
     TYPE=GET
+    PRODUCT="ZA"
     FILENAME="ZA-View-Metadata-$2-$3"
     ENDPOINT="$1/$2/$3"
     PARAMS="ZOHO_ACTION=VIEWMETADATA&ZOHO_OUTPUT_FORMAT=JSON&ZOHO_API_VERSION=1.0&ZOHO_ERROR_FORMAT=JSON"
     # specify argument values for zoho_curl()
     
-    JSON_FILE="$ZCRM_SAVE_DIR/$FILENAME.txt"
-    CSV_FILE="$ZCRM_SAVE_DIR/$FILENAME.csv"
+    JSON_FILE="$ZOHO_OUT/$FILENAME.txt"
+    CSV_FILE="$ZOHO_OUT/$FILENAME.csv"
     # specifying the input and output file names for jq
 
-    zoho_curl $TYPE ZA $JSON_FILE $ENDPOINT $PARAMS
+    zoho_curl $TYPE $PRODUCT $JSON_FILE $ENDPOINT $PARAMS
     # perform the get request, saving the json response to the specified filename in $ZOHO_SAVE_DIR
     
-    JQ_FILE="$ZSH_CUSTOM/plugins/zoho_for_zsh/resources/zoho_analytics_get_view_metadata_jq.txt"
+    JQ_FILE="$ZOHO_IN/zoho_analytics_get_view_metadata_jq.txt"
     # specifying path to jq file, takes a parameter or a default value
 
     util_json_to_csv $JSON_FILE $CSV_FILE $JQ_FILE
@@ -217,18 +218,19 @@ function zoho_crm_get_modules() {
     # @param $1: OPTIONAL - file path pointing to a plain text file containing valid jq syntax to parse the json into a csv - default value can be hardcoded
 
     TYPE=GET
+    PRODUCT="CRM"
     FILENAME=CRM-Module-Metadata
     ENDPOINT=settings/modules
     # specify argument values for zoho_curl()
     
-    JSON_FILE="$ZCRM_SAVE_DIR/$FILENAME.txt"
-    CSV_FILE="$ZCRM_SAVE_DIR/$FILENAME.csv"
+    JSON_FILE="$ZOHO_OUT/$FILENAME.txt"
+    CSV_FILE="$ZOHO_OUT/$FILENAME.csv"
     # specifying the input and output file names for jq
 
     zoho_curl $TYPE CRM $JSON_FILE $ENDPOINT
     # perform the get request, saving the json response to the specified filename in $ZOHO_SAVE_DIR
     
-    JQ_FILE="$ZSH_CUSTOM/plugins/zoho_for_zsh/resources/zoho_crm_get_modules_jq.txt"
+    JQ_FILE="$ZOHO_IN/zoho_crm_get_modules_jq.txt"
     # specifying path to jq file, takes a parameter or a default value
 
     util_json_to_csv $JSON_FILE $CSV_FILE $JQ_FILE
@@ -244,23 +246,24 @@ function zoho_crm_get_field_metadata() {
     # @param $2: OPTIONAL - a file path pointing to a plain text file containing valid jq syntax to parse the json into a csv - default value can be hardcoded
 
     TYPE="GET"
+    PRODUCT="CRM"
     # general request variables
 
-    INPUT_FILE="$ZSH_CUSTOM/plugins/zoho_for_zsh/resources/module_list.json"
+    INPUT_FILE="$ZOHO_IN/module_list.json"
     # the json file to be referenced for target modules
 
-    JQ_FILE="$ZSH_CUSTOM/plugins/zoho_for_zsh/resources/zoho_crm_get_field_metadata_jq.txt"
+    JQ_FILE="$ZOHO_IN/zoho_crm_get_field_metadata_jq.txt"
     # the plain text file containing the jq to parse the input file to .csv format - default value can be hardcoded
 
     for i in $(jq -r '.modules[]' $INPUT_FILE |  tr -d '"');
         do 
             MODULE=$i
-            JSON_FILE="$ZCRM_SAVE_DIR/CRM-Raw-Field-Metadata-$MODULE.txt"
-            CSV_FILE="$ZCRM_SAVE_DIR/CRM-Formatted-Field-Metadata-$MODULE.csv"
+            JSON_FILE="$ZOHO_OUT/CRM-Raw-Field-Metadata-$MODULE.txt"
+            CSV_FILE="$ZOHO_OUT/CRM-Formatted-Field-Metadata-$MODULE.csv"
             ENDPOINT="settings/fields?module=$i"
             # setting up module-specific request variables
 
-            zoho_curl $TYPE CRM $JSON_FILE $ENDPOINT
+            zoho_curl $TYPE $PRODUCT $JSON_FILE $ENDPOINT
             # the http request
 
             util_json_to_csv $JSON_FILE $CSV_FILE $JQ_FILE
@@ -277,17 +280,18 @@ function zoho_crm_get_record_timeline() {
     # @param $3: OPTIONAL - a file path pointing to a plain text file containing valid jq syntax to parse the json into a csv - default value can be hardcoded
 
     TYPE=GET
+    PRODUCT="CRM"
     FILENAME="CRM-Timeline-$1-$2"
     ENDPOINT="$1/$2/__timeline"
     PARAMS="include_inner_details=field_history.data_type, field_history.field_label, field_history.pick_list_values"
     # specifying parameter values for zoho_curl()
 
-    JSON_FILE="$ZCRM_SAVE_DIR/$FILENAME.txt"
-    CSV_FILE="$ZCRM_SAVE_DIR/$FILENAME.csv"
-    JQ_FILE="$ZSH_CUSTOM/plugins/zoho_for_zsh/resources/zoho_crm_get_record_timeline_jq.txt"
+    JSON_FILE="$ZOHO_OUT/$FILENAME.txt"
+    CSV_FILE="$ZOHO_OUT/$FILENAME.csv"
+    JQ_FILE="$ZOHO_IN/zoho_crm_get_record_timeline_jq.txt"
     # specifying input, output, and jq file names for parsing to csv
 
-    zoho_curl $TYPE CRM $JSON_FILE $ENDPOINT $PARAMS
+    zoho_curl $TYPE $PRODUCT $JSON_FILE $ENDPOINT $PARAMS
     # the http request
     
     util_json_to_csv $JSON_FILE $CSV_FILE $JQ_FILE
