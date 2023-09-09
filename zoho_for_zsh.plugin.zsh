@@ -23,9 +23,7 @@ function zoho_save_auth_to_keychain() {
     security add-generic-password -U -s "ZOHO_API_SECRET" -U -a "Zoho" -U -w $SECRET -T /usr/bin/security
     # adding/updating client id and secret keychain values - you may be prompted for your keychain password the first time
 
-    if [ ! -z $RFRESH ];
-        then security add-generic-password -U -s "ZOHO_API_REFRESH_TOKEN" -U -a "Zoho" -U -w $RFRESH -T /usr/bin/security
-    fi
+    if [ ! -z $RFRESH ]; then security add-generic-password -U -s "ZOHO_API_REFRESH_TOKEN" -U -a "Zoho" -U -w $RFRESH -T /usr/bin/security ; fi
     # adding/updating refresh token keychain value if it is passed as a param
 }
 
@@ -38,38 +36,30 @@ function zoho_oauth() {
 
     CLIENT=$(security find-generic-password -w -s "ZOHO_API_CLIENT_ID" -a "Zoho")
     SECRET=$(security find-generic-password -w -s "ZOHO_API_SECRET" -a "Zoho")
-    RFRESH=$(security find-generic-password -w -s "ZOHO_API_REFRESH_TOKEN" -a "Zoho")
+    BASE_URL="https://accounts.zoho.com/oauth/v2/token"
     # gets client information from the keychain
     # my current scopes: ZohoCRM.settings.ALL, ZohoCRM.modules.READ, ZohoAnalytics.metadata.read, ZohoAnalytics.data.read (Updated on 09/08/2023)
 
     GRANT_CODE=$1
     # get this code from the zoho api console when creating your self client or when changing assigned scopes
 
-    REFRESH=$(security find-generic-password -w -s "ZOHO_API_REFRESH_TOKEN" -a "Zoho")
-    # gets
-    # scopes: zoho.crm.settings.all, zoho.crm.modules.all, zoho.analytics.metadata.all, zoho.analytics.data.all (09/06/2023)
-
     if (! CLIENT=$(security find-generic-password -w -s "ZOHO_API_CLIENT_ID" -a "Zoho") || \
-        ! SECRET=$(security find-generic-password -w -s "ZOHO_API_SECRET" -a "Zoho") || \
-        ! RFRESH=$(security find-generic-password -w -s "ZOHO_API_REFRESH_TOKEN" -a "Zoho")); 
-            then
-                echo "can't fetch values from keychain, error $? - please make sure the specified keychain values exist and are not locked"
-            return 1
+        ! SECRET=$(security find-generic-password -w -s "ZOHO_API_SECRET" -a "Zoho"))
+            then echo "can't fetch values from keychain, error $?" ; return 1
     fi
     # if the keychain items cannot be fetched, stop execution because nothing else is gonna work
 
-    if [ ! -z "$GRANT_CODE" ]; 
+    if [ ! -z "$GRANT_CODE" ]
         then 
             AUTH=$(curl -X POST \
-                        -d "client_id=$CLIENT&client_secret=$SECRET&redirect_uri=$REDIRECT&code=$GRANT_CODE&grant_type=authorization_code" \
-                        "https://accounts.zoho.com/oauth/v2/token") 
+                        -d "client_id=$CLIENT&client_secret=$SECRET&redirect_uri=$REDIRECT&code=$GRANT_CODE&grant_type=authorization_code" $BASE_URL) 
             security add-generic-password -U -s "ZOHO_API_REFRESH_TOKEN" \
                                           -U -a "Zoho" \
                                           -U -w $(echo $AUTH | jq '.refresh_token' | tr -d '"')
         else 
+            RFRESH=$(security find-generic-password -w -s "ZOHO_API_REFRESH_TOKEN" -a "Zoho")
             AUTH=$(curl -X POST \
-                        -d "client_id=$CLIENT&client_secret=$SECRET&refresh_token=$RFRESH&grant_type=refresh_token" \
-                        "https://accounts.zoho.com/oauth/v2/token")
+                        -d "client_id=$CLIENT&client_secret=$SECRET&refresh_token=$RFRESH&grant_type=refresh_token" $BASE_URL)
     fi
     # the oauth2 http request - if a new grant code is not passed as an arg, saved refresh token is used - otherwise, new refresh token saved to keychain
 
@@ -77,22 +67,19 @@ function zoho_oauth() {
     export ZOHO_TOKEN=$(echo $AUTH | jq '.access_token' | tr -d '"')
     # pushes the value of the access token to the environment variable $ZCRM_TOKEN, along with the datetime of its expiry (1 hour after generation)
     
-    echo $AUTH | jq '.'
+    echo "{\"Refreshed\": \"TRUE\", \"Token\": \"$ZOHO_TOKEN\", \"Seconds until expiry\": $(echo $AUTH | jq '.expires_in')}" | jq .
     # pretty print the response from Zoho
 }
 
 function zoho_ensure_oauth() {
     # This function checks the expiry datetime of the most recent zoho api token and runs zoho_ouath() if the current token is expired
-    #
-    # @return: The response from zoho_oauth() if it runs, otherwise prints the current active token and seconds till expiry
+    
     NOW=$(date +%s)
     DIFF=$(($ZOHO_TOKEN_EXPIRY - $NOW))
    
-    if [ $DIFF -lt 0 ];
-        then
-            zoho_oauth
-        else
-            echo "{\"Token\": \"$ZOHO_TOKEN\", \"Seconds until expiry\": \"$DIFF\"}" | jq .
+    if [ $DIFF -lt 0 ]
+        then zoho_oauth
+        else echo "{\"Refreshed\": \"FALSE\", \"Token\": \"$ZOHO_TOKEN\", \"Seconds until expiry\": \"$DIFF\"}" | jq .
     fi
 }
 
@@ -105,23 +92,27 @@ function util_json_to_csv() {
     # @param $2: REQUIRED - file path pointing to a .csv file where jq will save its output
     # @param $3: REQUIRED - file path pointing to a .txt file containing jq used to parse the json
 
-    IN_FILE=$1
-    OUT_FILE=$2
+    export IN_FILE=$1
+    export OUT_FILE=$2
+    # saving in and out names to the environment so we can reference them in the jq file
+
     JQ_FILE=$3
     # naming the input parameters
 
-    if [ ! -r "$IN_FILE" ]; 
-        then chmod 755 $IN_FILE
+    if [ ! -r "$IN_FILE" ]
+        then chmod 755 $IN_FILE ; echo "updated permissions for $IN_FILE"
     fi
     # make sure we can read the input file 
 
-    if [ ! -r "$JQ_FILE" ]; 
-        then chmod 755 $JQ_FILE
+    if [ ! -x "$JQ_FILE" ]
+        then chmod 777 $JQ_FILE ; echo "updated permissions for $JQ_FILE"
     fi
     # make sure we can read the jq file 
 
-    jq -r $($JQ_FILE) $IN_FILE > $OUT_FILE
-    # parse the in-file using the contents of the jq-file, saving result to the out-file
+    . $JQ_FILE
+    # source the jq-file and use it too parse the in-file, saving result to the out-file
+
+    echo "Result at $OUT_FILE"
 }
 
 function zoho_curl() {
@@ -142,15 +133,16 @@ function zoho_curl() {
     ENDPOINT=$4
     PARAMS=$5
 
-    if [ ! -r "$SAVE_FILE" ]; 
-        then chmod 755 $SAVE_FILE
+    zoho_ensure_oauth
+    # make sure we have an active token - if not, refresh it
+
+    if [ ! -w "$SAVE_FILE" ]
+        then chmod 755 $SAVE_FILE ; echo "updated permissions for $SAVE_FILE"
     fi
     # if the owner does not have read/write/execute permissions to the $ZOHO_SAVE_DIR, grants them
     
-    if [ $PRODUCT = "CRM" ]; 
-        then BASE_URL=https://www.zohoapis.com/crm/v5
-        elif [ $PRODUCT = "ZA" ]; 
-            then BASE_URL=https://analyticsapi.zoho.com/api
+    if [ $PRODUCT = "CRM" ]; then BASE_URL=https://www.zohoapis.com/crm/v5
+        elif [ $PRODUCT = "ZA" ]; then BASE_URL=https://analyticsapi.zoho.com/api
         else BASE_URL=$PRODUCT
     fi
     # determines the base url to use for the request based on the product name or url specified in $2
@@ -158,15 +150,13 @@ function zoho_curl() {
     HEADER="Authorization: Zoho-oauthtoken $ZOHO_TOKEN"
     # header passed with the http request
 
-    zoho_ensure_oauth
-
-    if [ ! -z $PARAMS ];
+    if [ ! -z $PARAMS ]
         then
             RESP=$(curl \
                 -o $SAVE_FILE \
                 -X $TYPE \
                 -H $HEADER \
-                -d "$PARAMS" \
+                -d $PARAMS \
                 "$BASE_URL/$ENDPOINT")
         else
             RESP=$(curl \
@@ -201,11 +191,12 @@ function zoho_analytics_get_view_metadata() {
     zoho_curl $TYPE $PRODUCT $JSON_FILE $ENDPOINT $PARAMS
     # perform the get request, saving the json response to the specified filename in $ZOHO_SAVE_DIR
     
-    JQ_FILE="$ZOHO_IN/zoho_analytics_get_view_metadata_jq.txt"
+    JQ_FILE="$ZOHO_IN/zoho_analytics_get_view_metadata_jq.zsh"
     # specifying path to jq file, takes a parameter or a default value
 
     util_json_to_csv $JSON_FILE $CSV_FILE $JQ_FILE
     # parses file as raw json - first specifying col names, then iterating thru the modules array & selecting relevant keys, finally converting to csv
+    
     return 0
 }
 
@@ -214,11 +205,9 @@ function zoho_analytics_get_view_metadata() {
 function zoho_crm_get_modules() {
     # This function gets all crm module metadata, saves it locally as a .txt file, then parses selected json to create a .csv file and saves it locally
     # uses the modules api: https://www.zoho.com/crm/developer/docs/api/v5/modules-api.html
-    #
-    # @param $1: OPTIONAL - file path pointing to a plain text file containing valid jq syntax to parse the json into a csv - default value can be hardcoded
 
     TYPE=GET
-    PRODUCT="CRM"
+    PRODUCT=CRM
     FILENAME=CRM-Module-Metadata
     ENDPOINT=settings/modules
     # specify argument values for zoho_curl()
@@ -227,14 +216,15 @@ function zoho_crm_get_modules() {
     CSV_FILE="$ZOHO_OUT/$FILENAME.csv"
     # specifying the input and output file names for jq
 
-    zoho_curl $TYPE CRM $JSON_FILE $ENDPOINT
+    zoho_curl $TYPE $PRODUCT $JSON_FILE $ENDPOINT
     # perform the get request, saving the json response to the specified filename in $ZOHO_SAVE_DIR
     
-    JQ_FILE="$ZOHO_IN/zoho_crm_get_modules_jq.txt"
+    JQ_FILE="$ZOHO_IN/zoho_crm_get_modules_jq.zsh"
     # specifying path to jq file, takes a parameter or a default value
 
     util_json_to_csv $JSON_FILE $CSV_FILE $JQ_FILE
     # parses file as raw json - first specifying col names, then iterating thru the modules array & selecting relevant keys, finally converting to csv
+
     return 0
 }
 
@@ -269,6 +259,7 @@ function zoho_crm_get_field_metadata() {
             util_json_to_csv $JSON_FILE $CSV_FILE $JQ_FILE
             # parses file as raw json - first specifying col names, then iterating thru the modules array & selecting relevant keys, finally converting to csv
         done;
+    
     return 0
 }
 
