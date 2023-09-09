@@ -231,9 +231,6 @@ function zoho_crm_get_modules() {
 function zoho_crm_get_field_metadata() {
     # This function gets field metadata for specified modules, saves the responses locally as .txt files, and parses them to create .csv files
     # Make sure you have directories set up for the save paths before running this function
-    #
-    # @param $1: REQUIRED - a file path pointing to a .json file containing an array of crm module names inside a "modules" object
-    # @param $2: OPTIONAL - a file path pointing to a plain text file containing valid jq syntax to parse the json into a csv - default value can be hardcoded
 
     TYPE="GET"
     PRODUCT="CRM"
@@ -268,7 +265,6 @@ function zoho_crm_get_record_timeline() {
     #
     # @param $1: REQUIRED - api name of the module to which the queried record belongs
     # @param $2: REQUIRED - zoho record id of the module whose timeline is being pulled
-    # @param $3: OPTIONAL - a file path pointing to a plain text file containing valid jq syntax to parse the json into a csv - default value can be hardcoded
 
     TYPE=GET
     PRODUCT="CRM"
