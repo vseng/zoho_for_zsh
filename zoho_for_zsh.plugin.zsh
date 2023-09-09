@@ -85,6 +85,16 @@ function zoho_ensure_oauth() {
 
 # ---------- UTILITY FUNCTIONS ----------
 
+function url_encode_basic() {
+    # This function replaces '@' and ' ' with their url-encoded values
+
+    src=$1 
+    sub_at=$(echo ${(S)src//"@"/"%40"})
+    sub_sp=$(echo ${(S)sub_at//" "/"%20"})
+    
+    echo $sub_sp
+}
+
 function util_json_to_csv() {
     # This is a helper function for zoho api GET requests - parses json using specified jq syntax and outputs the result as a .csv file
     #
@@ -111,8 +121,10 @@ function util_json_to_csv() {
 
     . $JQ_FILE
     # source the jq-file and use it too parse the in-file, saving result to the out-file
-
-    echo "Result at $OUT_FILE"
+    if [ ! -f $OUT_FILE ]; 
+        then echo "Result file not created: $?"; return 1
+        else echo "Result at $OUT_FILE"
+    fi
 }
 
 function zoho_curl() {
@@ -128,76 +140,21 @@ function zoho_curl() {
     # @return: a file output, usually json-formatted
 
     TYPE=$1
-    PRODUCT=$2
-    SAVE_FILE=$3
-    ENDPOINT=$4
-    PARAMS=$5
+    SAVE_FILE=$2
+    ENDPOINT=$3
+    PARAMS=$4
 
     zoho_ensure_oauth
     # make sure we have an active token - if not, refresh it
-
-    if [ ! -w "$SAVE_FILE" ]
-        then chmod 755 $SAVE_FILE ; echo "updated permissions for $SAVE_FILE"
-    fi
-    # if the owner does not have read/write/execute permissions to the $ZOHO_SAVE_DIR, grants them
     
-    if [ $PRODUCT = "CRM" ]; then BASE_URL=https://www.zohoapis.com/crm/v5
-        elif [ $PRODUCT = "ZA" ]; then BASE_URL=https://analyticsapi.zoho.com/api
-        else BASE_URL=$PRODUCT
-    fi
+    BASE_URL=https://www.zohoapis.com/crm/v5
     # determines the base url to use for the request based on the product name or url specified in $2
 
     HEADER="Authorization: Zoho-oauthtoken $ZOHO_TOKEN"
     # header passed with the http request
 
-    if [ ! -z $PARAMS ]
-        then
-            RESP=$(curl \
-                -o $SAVE_FILE \
-                -X $TYPE \
-                -H $HEADER \
-                -d $PARAMS \
-                "$BASE_URL/$ENDPOINT")
-        else
-            RESP=$(curl \
-                -o $SAVE_FILE \
-                -X $TYPE \
-                -H $HEADER \
-                "$BASE_URL/$ENDPOINT")
-    fi
+    RESP=$(curl -o $SAVE_FILE -X $TYPE -H $HEADER ${PARAMS:=-d $PARAMS} "$BASE_URL/$ENDPOINT")
     # the http request - only passes url params with the request if they exist
-}
-
-# ---------- ZOHO ANALYTICS FUNCTIONS ----------
-
-function zoho_analytics_get_view_metadata() {
-    # This function reads the view metadata for a Zoho Analytics table
-    #
-    # @param $1: REQUIRED - the email address of your organization owner
-    # @param $2: REQUIRED - the name of the targeted workspace, url-encoded
-    # @param $3: REQUIRED - the name of the targeted workspace view, url-encoded
-
-    TYPE=GET
-    PRODUCT="ZA"
-    FILENAME="ZA-View-Metadata-$2-$3"
-    ENDPOINT="$1/$2/$3"
-    PARAMS="ZOHO_ACTION=VIEWMETADATA&ZOHO_OUTPUT_FORMAT=JSON&ZOHO_API_VERSION=1.0&ZOHO_ERROR_FORMAT=JSON"
-    # specify argument values for zoho_curl()
-    
-    JSON_FILE="$ZOHO_OUT/$FILENAME.txt"
-    CSV_FILE="$ZOHO_OUT/$FILENAME.csv"
-    # specifying the input and output file names for jq
-
-    zoho_curl $TYPE $PRODUCT $JSON_FILE $ENDPOINT $PARAMS
-    # perform the get request, saving the json response to the specified filename in $ZOHO_SAVE_DIR
-    
-    JQ_FILE="$ZOHO_IN/zoho_analytics_get_view_metadata_jq.zsh"
-    # specifying path to jq file, takes a parameter or a default value
-
-    util_json_to_csv $JSON_FILE $CSV_FILE $JQ_FILE
-    # parses file as raw json - first specifying col names, then iterating thru the modules array & selecting relevant keys, finally converting to csv
-    
-    return 0
 }
 
 # ---------- ZOHO CRM FUNCTIONS ----------
@@ -207,7 +164,6 @@ function zoho_crm_get_modules() {
     # uses the modules api: https://www.zoho.com/crm/developer/docs/api/v5/modules-api.html
 
     TYPE=GET
-    PRODUCT=CRM
     FILENAME=CRM-Module-Metadata
     ENDPOINT=settings/modules
     # specify argument values for zoho_curl()
@@ -216,7 +172,7 @@ function zoho_crm_get_modules() {
     CSV_FILE="$ZOHO_OUT/$FILENAME.csv"
     # specifying the input and output file names for jq
 
-    zoho_curl $TYPE $PRODUCT $JSON_FILE $ENDPOINT
+    zoho_curl $TYPE $JSON_FILE $ENDPOINT
     # perform the get request, saving the json response to the specified filename in $ZOHO_SAVE_DIR
     
     JQ_FILE="$ZOHO_IN/zoho_crm_get_modules_jq.zsh"
@@ -233,13 +189,12 @@ function zoho_crm_get_field_metadata() {
     # Make sure you have directories set up for the save paths before running this function
 
     TYPE="GET"
-    PRODUCT="CRM"
     # general request variables
 
     INPUT_FILE="$ZOHO_IN/module_list.json"
     # the json file to be referenced for target modules
 
-    JQ_FILE="$ZOHO_IN/zoho_crm_get_field_metadata_jq.txt"
+    JQ_FILE="$ZOHO_IN/zoho_crm_get_field_metadata_jq.zsh"
     # the plain text file containing the jq to parse the input file to .csv format - default value can be hardcoded
 
     for i in $(jq -r '.modules[]' $INPUT_FILE |  tr -d '"');
@@ -250,7 +205,7 @@ function zoho_crm_get_field_metadata() {
             ENDPOINT="settings/fields?module=$i"
             # setting up module-specific request variables
 
-            zoho_curl $TYPE $PRODUCT $JSON_FILE $ENDPOINT
+            zoho_curl $TYPE $JSON_FILE $ENDPOINT
             # the http request
 
             util_json_to_csv $JSON_FILE $CSV_FILE $JQ_FILE
@@ -267,7 +222,6 @@ function zoho_crm_get_record_timeline() {
     # @param $2: REQUIRED - zoho record id of the module whose timeline is being pulled
 
     TYPE=GET
-    PRODUCT="CRM"
     FILENAME="CRM-Timeline-$1-$2"
     ENDPOINT="$1/$2/__timeline"
     PARAMS="include_inner_details=field_history.data_type, field_history.field_label, field_history.pick_list_values"
@@ -278,7 +232,7 @@ function zoho_crm_get_record_timeline() {
     JQ_FILE="$ZOHO_IN/zoho_crm_get_record_timeline_jq.txt"
     # specifying input, output, and jq file names for parsing to csv
 
-    zoho_curl $TYPE $PRODUCT $JSON_FILE $ENDPOINT $PARAMS
+    zoho_curl $TYPE $JSON_FILE $ENDPOINT $PARAMS
     # the http request
     
     util_json_to_csv $JSON_FILE $CSV_FILE $JQ_FILE
