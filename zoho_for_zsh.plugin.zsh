@@ -132,10 +132,9 @@ function zoho_curl() {
     # BEFORE USING, UPDATE THE VALUE OF YOUR ZOHO CRM SAVE DIRECTORY $ZOHO_SAVE_DIR IN YOUR .ZSHRC
     #
     # @param $1: REQUIRED - Request Type - accepted values are POST, PUT, GET, etc.
-    # @param $2: REQUIRED - The CRM Product being queried - determines base URL for http requests. Current supported values are CRM and ZA - also accepts base URLs (no trailing "/")
-    # @param $3: REQUIRED - File path where http response will be saved - edit these in the functions below to support your local environment setup
-    # @param $4: REQUIRED - API Endpoint targeted by the http request - exclude leading and trailing "/" characters
-    # @param $5: OPTIONAL - URL parameters for the http request - should be URL-encoded
+    # @param $2: REQUIRED - File path where http response will be saved - edit these in the functions below to support your local environment setup
+    # @param $3: REQUIRED - API Endpoint targeted by the http request - exclude leading and trailing "/" characters
+    # @param $4: OPTIONAL - URL parameters for the http request - should be URL-encoded
     #
     # @return: a file output, usually json-formatted
 
