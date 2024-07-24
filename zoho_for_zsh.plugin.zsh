@@ -5,95 +5,156 @@
 
 # ---------- API AUTH FUNCTIONS ----------
 
-function zoho_save_auth_to_keychain() {
-    # This function must be run prior to querying any endpoings using this plugin - saves app id and secret to macOS keychain to avoid having to hardcode them in
-    # if your self client is not new and you have an existing refresh token, use the optional third parameter to save it to keychain as well
+function save_self_client() {
+    # This function must be run prior to querying any endpoints using this plugin
+    # saves app id and secret (and refresh if applicable) to macOS keychain
+    #
     # if keychain items already exist, values will be updated
     #
-    # @param $1: REQUIRED - the client id from your zoho self client app
-    # @param $2: REQUIRED - the client secret from your zoho self client app
-    # @param $3: OPTIONAL - the existing refresh token from your zoho self client app (required for initial use, use a dummy value to get the keychain item created)
+    # INPUT (any order)
+    # -i or --id:      REQUIRED - the client id from your zoho self client app
+    # -s or --secret:  REQUIRED - the client secret from your zoho self client app
+    # -r or --refresh: OPTIONAL - the existing refresh token from your zoho self client app (required for initial use, use a dummy value to get the keychain item created)
+    # -v or --verbose: OPTIONAL - prints debug text
 
-    CLIENT=$1
-    SECRET=$2
-    RFRESH=$3
-    # naming the input parameters
+    while [[ "$#" -gt 0 ]] ; do 
+        case "$1" in 
+            -i | --id)      id="$2"
+            shift ;;
+            -s | --secret)  secret="$2"
+            shift ;;
+            -r | --refresh) refresh="$2"
+            shift ;; 
+            -v | --verbose) debug=true ;;
+            *) echo "$0: Unrecognized input - $1. $?" ; return 1 ;; 
+        esac 
+        shift 
+    done 
+    # assigning function variables based on args
 
-    security add-generic-password -U -s "ZOHO_API_CLIENT_ID" -U -a "Zoho" -U -w $CLIENT -T /usr/bin/security
-    security add-generic-password -U -s "ZOHO_API_SECRET" -U -a "Zoho" -U -w $SECRET -T /usr/bin/security
+    echo "assigned values to function vars"
+
+    security add-generic-password -U -s "ZOHO_API_CLIENT_ID" -U -a "Zoho" -U -w $id -T /usr/bin/security
+    security add-generic-password -U -s "ZOHO_API_SECRET" -U -a "Zoho" -U -w $secret -T /usr/bin/security
     # adding/updating client id and secret keychain values - you may be prompted for your keychain password the first time
 
-    if [ ! -z $RFRESH ]; then security add-generic-password -U -s "ZOHO_API_REFRESH_TOKEN" -U -a "Zoho" -U -w $RFRESH -T /usr/bin/security ; fi
-    # adding/updating refresh token keychain value if it is passed as a param
+    echo "saving input to the keychain"
+
+    if [ ! -z $refresh ]; then security add-generic-password -U -s "ZOHO_API_REFRESH_TOKEN" -U -a "Zoho" -U -w $ -T /usr/bin/security ; fi
+    # adding/updating refresh token keychain value if it is passed
 }
 
-function zoho_oauth() {
-    # This function handles token generation and refresh for the zoho_api plugin - app client info must already be saved to the keychain before use
+function get_access_token() {
+    # This function handles token generation and refresh for the zoho_api plugin
+    # app client info must already be saved to the keychain before use
     #
-    # @param $1: OPTIONAL - grant code received from zoho api console to be used for new clients & if scopes are changed - refresh token will be saved to keychain
-    #
-    # @return: prints the token value and the duration in seconts until expiry - if new refresh token is generated, prints that as well
+    # INPUT
+    # -c or --code:    OPTIONAL - grant code received from zoho api console to be used for new clients & if scopes are changed - refresh token will be saved to keychain
+    # -v or --verbose: OPTIONAL - asks for printed output
 
-    CLIENT=$(security find-generic-password -w -s "ZOHO_API_CLIENT_ID" -a "Zoho")
-    SECRET=$(security find-generic-password -w -s "ZOHO_API_SECRET" -a "Zoho")
-    BASE_URL="https://accounts.zoho.com/oauth/v2/token"
+    while [[ "$#" -gt 0 ]] ; do 
+        case "$1" in 
+            -r | --refresh) gen_refresh=true uri="$2" code="$3"
+            shift ;;
+            -v | --verbose) debug=true ;;
+            *) echo "$0: Unrecognized input $1. $?" ; return 1 ;; 
+        esac 
+        shift 
+    done 
+    # assigning function variables based on args
+
+    base_url=https://accounts.zoho.com/oauth/v2/token
+    # using north america url 
+
+    echo "getting values from keychain"
+
+    id=$(security find-generic-password -w -s "ZOHO_API_CLIENT_ID" -a "Zoho")
+    secret=$(security find-generic-password -w -s "ZOHO_API_SECRET" -a "Zoho")
+    
     # gets client information from the keychain
     # my current scopes: ZohoCRM.settings.ALL, ZohoCRM.modules.READ, ZohoAnalytics.metadata.read, ZohoAnalytics.data.read (Updated on 09/08/2023)
 
-    GRANT_CODE=$1
     # get this code from the zoho api console when creating your self client or when changing assigned scopes
 
-    if (! CLIENT=$(security find-generic-password -w -s "ZOHO_API_CLIENT_ID" -a "Zoho") || \
-        ! SECRET=$(security find-generic-password -w -s "ZOHO_API_SECRET" -a "Zoho"))
-            then echo "can't fetch values from keychain, error $?" ; return 1
+    if (! id=$(security find-generic-password -w -s "ZOHO_API_CLIENT_ID" -a "Zoho") || \
+        ! secret=$(security find-generic-password -w -s "ZOHO_API_SECRET" -a "Zoho"))
+            then 
+                echo "$0: can't fetch values from keychain"
+                ${debug:-$(echo "Error: $?")}
+                return 1
     fi
     # if the keychain items cannot be fetched, stop execution because nothing else is gonna work
 
-    if [ ! -z "$GRANT_CODE" ]
+    echo "requesting access token ${gen_refresh:+ and refresh token}"
+
+    if [[ "$gen_refresh" = "true" ]]
         then 
-            AUTH=$(curl -X POST \
-                        -d "client_id=$CLIENT&client_secret=$SECRET&redirect_uri=$REDIRECT&code=$GRANT_CODE&grant_type=authorization_code" $BASE_URL) 
-            security add-generic-password -U -s "ZOHO_API_REFRESH_TOKEN" \
-                                          -U -a "Zoho" \
-                                          -U -w $(echo $AUTH | jq '.refresh_token' | tr -d '"')
-        else 
-            RFRESH=$(security find-generic-password -w -s "ZOHO_API_REFRESH_TOKEN" -a "Zoho")
-            AUTH=$(curl -X POST \
-                        -d "client_id=$CLIENT&client_secret=$SECRET&refresh_token=$RFRESH&grant_type=refresh_token" $BASE_URL)
+            gen_refresh_params="&redirect_uri=$uri&code=$code&grant_type=authorization_code"
+        else
+            refresh=$(security find-generic-password -w -s "ZOHO_API_REFRESH_TOKEN" -a "Zoho")
+            refresh_flow_params="&refresh_token=$refresh&grant_type=refresh_token"
     fi
-    # the oauth2 http request - if a new grant code is not passed as an arg, saved refresh token is used - otherwise, new refresh token saved to keychain
+    
+    params="client_id=$id&client_secret=$secret${gen_refresh_params:-}${refresh_flow_params:-}" 
+
+    echo $params
+
+    response=$(curl -X POST -d $params "$base_url") 
+    echo $response
+    # the http request - if refresh token is not being generated & saved to keychain, saved refresh token is used
+    
+    if [[ "$gen_refresh" = "true" ]]
+        then if [[ "$debug" = "true" ]]; then echo "saving new refresh token value to keychain"; fi
+             security add-generic-password -U -s "ZOHO_API_REFRESH_TOKEN" \
+                                           -U -a "Zoho" \
+                                           -U -w $(echo $response | jq '.refresh_token' | tr -d '"')
+    fi
+    # saving new refresh token to keychain if one was generated
 
     export ZOHO_TOKEN_EXPIRY=$(date -v+1H +%s)
-    export ZOHO_TOKEN=$(echo $AUTH | jq '.access_token' | tr -d '"')
+    export ZOHO_TOKEN=$(echo $response | jq '.access_token' | tr -d '"')
     # pushes the value of the access token to the environment variable $ZCRM_TOKEN, along with the datetime of its expiry (1 hour after generation)
     
-    echo "{\"Refreshed\": \"TRUE\", \"Token\": \"$ZOHO_TOKEN\", \"Seconds until expiry\": $(echo $AUTH | jq '.expires_in')}" | jq .
-    # pretty print the response from Zoho
+    echo "{\"Refreshed\": \"TRUE\", \"Token\": \"$ZOHO_TOKEN\", \"Seconds until expiry\": \"$(echo $response | jq '.expires_in')\"}" | jq '.'
+    # pretty print the response from Zoho if asked
 }
 
-function zoho_ensure_oauth() {
+function ensure_token() {
     # This function checks the expiry datetime of the most recent zoho api token and runs zoho_ouath() if the current token is expired
+    #
+    # INPUT
+    # -v or --verbose: OPTIONAL - asks for printed output
     
-    NOW=$(date +%s)
-    DIFF=$(($ZOHO_TOKEN_EXPIRY - $NOW))
+    while [[ "$#" -gt 0 ]] ; do
+        case "$1" in 
+            -v | --verbose) debug=true ;; 
+            *) echo "$0: Unrecognized input - $1. $?" ; exit 1 ;; 
+        esac 
+        shift 
+    done 
+    # assigning function variables based on args
+    
+    echo $debug
+
+    if [ ! -z $ZOHO_TOKEN_EXPIRY ]
+        then
+            now=$(date +%s)
+            diff=$(($ZOHO_TOKEN_EXPIRY - $now))
+        else
+            diff=0
+            get_access_token ${debug:+-v}
+    fi
    
-    if [ $DIFF -lt 0 ]
-        then zoho_oauth
-        else echo "{\"Refreshed\": \"FALSE\", \"Token\": \"$ZOHO_TOKEN\", \"Seconds until expiry\": \"$DIFF\"}" | jq .
+    if [[ "$diff" -lt 0 ]]
+        then get_access_token ${debug:+-v}
+    else 
+        ${debug:+$(echo "{\"Refreshed\": \"FALSE\", 
+                          \"Token\": \"$ZOHO_TOKEN\", 
+                          \"Seconds until expiry\": \"$diff\"}" | jq '.')}
     fi
 }
 
 # ---------- UTILITY FUNCTIONS ----------
-
-function url_encode_basic() {
-    # This function replaces '@' and ' ' with their url-encoded values
-
-    src=$1 
-    sub_at=$(echo ${(S)src//"@"/"%40"})
-    sub_sp=$(echo ${(S)sub_at//" "/"%20"})
-    
-    echo $sub_sp
-}
 
 function util_json_to_csv() {
     # This is a helper function for zoho api GET requests - parses json using specified jq syntax and outputs the result as a .csv file
@@ -122,7 +183,7 @@ function util_json_to_csv() {
     . $JQ_FILE
     # source the jq-file and use it too parse the in-file, saving result to the out-file
     if [ ! -f $OUT_FILE ]; 
-        then echo "Result file not created: $?"; return 1
+        then echo "Result file not created: $?" ; return 1
         else echo "Result at $OUT_FILE"
     fi
 }
@@ -156,7 +217,8 @@ function zoho_curl() {
     # the http request - only passes url params with the request if they exist
 }
 
-# ---------- ZOHO CRM FUNCTIONS ----------
+# ---------- ZOHO ANALYTICS FUNCTIONS ----------
+# Organization -> Workspace -> View -> Formula
 
 function zoho_crm_get_modules() {
     # This function gets all crm module metadata, saves it locally as a .txt file, then parses selected json to create a .csv file and saves it locally
