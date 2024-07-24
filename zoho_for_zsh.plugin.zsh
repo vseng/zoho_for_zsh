@@ -204,7 +204,7 @@ function zoho_curl() {
     ENDPOINT=$3
     PARAMS=$4
 
-    zoho_ensure_oauth
+    ensure_token
     # make sure we have an active token - if not, refresh it
     
     BASE_URL=https://www.zohoapis.com/crm/v5
