@@ -1,4 +1,4 @@
-# zsh_for_zoho
+# zoho_for_zsh
 an oh-my-zsh custom plugin consisting of a set of shell functions and supporting resources for interacting with various zoho apis from the shell
 
 ## Requirements:
